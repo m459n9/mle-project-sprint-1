@@ -160,3 +160,8 @@ cython_debug/
 #.idea/
 
 *.csv
+# Файлы проекта
+.DS_Store
+catboost_info/
+part1_airflow/logs/
+part2_dvc/models/*.pkl
