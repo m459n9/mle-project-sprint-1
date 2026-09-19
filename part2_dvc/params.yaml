@@ -1,0 +1,41 @@
+# Параметры DVC-пайплайна. Скрипты из scripts/ читают этот файл,
+# а DVC следит за изменением параметров, перечисленных в dvc.yaml.
+
+# id квартиры: в признаки не входит, по нему в split.py проверяю, что квартиры не повторяются
+index_col: flat_id
+
+# что предсказываем: цену квартиры в рублях
+target_col: price
+
+# колонки, которые не являются признаками (номер строки и id)
+drop_cols: [id, flat_id, building_id]
+
+# категориальные признаки: код типа дома и булевы флаги
+cat_cols: [building_type_int, is_apartment, studio, has_elevator]
+
+# какую долю данных откладываем на тест
+test_size: 0.2
+
+# seed для разбиения, кросс-валидации и модели, чтобы результат повторялся
+random_state: 42
+
+# у бинарных признаков OneHotEncoder оставит один столбец вместо двух
+one_hot_drop: if_binary
+
+# сколько фолдов в кросс-валидации
+n_splits: 5
+
+# фолды считаем по очереди: CatBoost уже занимает все ядра сам
+n_jobs: 1
+
+# метрики кросс-валидации (имена scorer-ов sklearn), основная - MAE
+metrics: [neg_mean_absolute_error, neg_root_mean_squared_error, neg_mean_absolute_percentage_error, r2]
+
+# гиперпараметры базовой модели CatBoostRegressor
+model:
+  iterations: 500        # сколько деревьев строим
+  learning_rate: 0.05    # скорость обучения
+  depth: 6               # глубина дерева
+  loss_function: RMSE    # функция потерь для регрессии
+  verbose: 0             # не печатать лог обучения
+  thread_count: -1       # использовать все ядра
