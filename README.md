@@ -1,9 +1,6 @@
 # Проект 1 спринта
 
-Учебный проект курса "Инженер машинного обучения": пайплайны подготовки данных и обучения модели,
-которая предсказывает стоимость квартир Яндекс Недвижимости.
-
-## 1. Задача
+## Задача
 
 Исходные данные лежат в двух таблицах Postgres:
 
@@ -12,60 +9,48 @@
 * `flats` - квартиры: `id`, `building_id`, `floor`, `kitchen_area`, `living_area`, `rooms`,
   `is_apartment`, `studio`, `total_area`, `price`.
 
-Таблицы связаны один-ко-многим: `buildings.id = flats.building_id`. Предсказать нужно `price`,
-то есть это задача регрессии.
+Таблицы связаны один-ко-многим: `buildings.id = flats.building_id`. Предсказывать нужно `price`,
+то есть это регрессия.
 
-Работа разбита на три этапа:
+Работа разбита на три этапа: DAG в Airflow собирает данные из двух таблиц в один датасет, второй DAG
+его чистит, а DVC-пайплайн обучает на очищенных данных модель и отправляет её в S3.
 
-1. DAG в Airflow собирает данные из двух таблиц в один датасет.
-2. Второй DAG чистит этот датасет: пропуски, дубликаты, выбросы.
-3. DVC-пайплайн обучает на очищенных данных модель и сохраняет её в S3.
+## База данных
 
-## 2. Какие базы данных используются
+Исходные таблицы `buildings` и `flats` лежат в личной базе. Туда же пишутся и результаты:
+сначала `flats_dataset`, потом `clean_flats_dataset`. То есть всё работает с одной базой.
 
-Таблицы `buildings` и `flats` лежат в **общей базе** курса, доступ к ней только на чтение.
-Результаты обеих частей пишутся в **личную базу**: сначала `flats_dataset`, потом `clean_flats_dataset`.
+В Airflow она подключена через соединение `destination_db`. Строка подключения собирается
+в `part1_airflow/docker-compose.yaml` из переменных `DB_DESTINATION_*` файла `.env`
+(переменная `AIRFLOW_CONN_DESTINATION_DB`), поэтому в коде DAG достаточно написать
+`PostgresHook('destination_db')`. Сам `.env` в git не уходит, доступы только оттуда.
 
-В Airflow это два разных соединения:
+Вторая часть проекта читает `clean_flats_dataset` по тем же переменным `DB_DESTINATION_*`
+из своего файла `part2_dvc/.env`.
 
-| Соединение | База | Переменные в `.env` | Зачем |
-|---|---|---|---|
-| `source_db` | общая, читаем | `DB_SOURCE_*` | читаем `buildings` и `flats` |
-| `destination_db` | личная, пишем | `DB_DESTINATION_*` | пишем `flats_dataset` и `clean_flats_dataset` |
+## Бакет S3
 
-Обе строки подключения собираются в `part1_airflow/docker-compose.yaml` из переменных файла `.env`
-(`AIRFLOW_CONN_SOURCE_DB` и `AIRFLOW_CONN_DESTINATION_DB`), поэтому в коде DAG хватает
-`PostgresHook('source_db')` и `PostgresHook('destination_db')`. Сам `.env` в репозиторий не попадает,
-в коде паролей нет.
-
-Вторая часть проекта читает `clean_flats_dataset` из личной базы по тем же переменным
-`DB_DESTINATION_*` из своего файла `part2_dvc/.env`.
-
-## 3. Бакет S3
-
-Здесь укажите имя вашего бакета: **s3-student-mle-20260908-7056ef1b44**
-
-В бакете лежат:
+Бакет: `s3-student-mle-20260908-7056ef1b44`. В нём лежат:
 
 * `dvc/` - удалённое хранилище DVC (туда уходят данные и модель после `dvc push`);
 * `mle-project-sprint-1/models/fitted_model.pkl` - копия обученной модели с понятным именем,
   её кладёт скрипт `part2_dvc/scripts/upload_model.py`.
 
-## 4. Структура репозитория
+## Структура репозитория
 
 ```
 mle-project-sprint-1/
 ├── README.md
 ├── requirements.txt                   # общий список зависимостей из шаблона курса
-├── part1_airflow/                     # этапы 1 и 2: Airflow
-│   ├── README.md                      # как поднять Airflow и запустить DAG
-│   ├── .env_template                  # шаблон переменных окружения (без секретов)
+├── part1_airflow/                     # Airflow: этапы 1 и 2
+│   ├── README.md
+│   ├── .env_template
 │   ├── Dockerfile
 │   ├── docker-compose.yaml
 │   ├── requirements.txt
 │   ├── dags/
-│   │   ├── flats_dataset.py           # DAG prepare_flats_dataset (этап 1)
-│   │   └── clean_flats_dataset.py     # DAG clean_flats_dataset (этап 2)
+│   │   ├── flats_dataset.py
+│   │   └── clean_flats_dataset.py
 │   ├── plugins/steps/
 │   │   ├── messages.py                # уведомления в Telegram
 │   │   └── clean_flats.py             # функции очистки данных
@@ -74,80 +59,64 @@ mle-project-sprint-1/
 │   │   └── 2_data_cleaning.ipynb
 │   └── logs/                          # логи Airflow, в git не попадают
 └── part2_dvc/                         # этап 3: DVC
-    ├── README.md                      # как запустить пайплайн
+    ├── README.md
     ├── .env_template
     ├── requirements.txt
-    ├── params.yaml                    # параметры пайплайна
-    ├── dvc.yaml                       # описание стадий
+    ├── params.yaml
+    ├── dvc.yaml
     ├── dvc.lock                       # появляется после dvc repro
-    ├── .dvc/config                    # настройки DVC: адрес удалённого хранилища
+    ├── .dvc/config                    # адрес удалённого хранилища
     ├── .dvcignore
     ├── scripts/
-    │   ├── data.py                    # стадия get_data
-    │   ├── split.py                   # стадия split_data
-    │   ├── fit.py                     # стадия fit_model
-    │   ├── evaluate.py                # стадия evaluate_model
-    │   └── upload_model.py            # загрузка модели в S3 (запускается вручную)
+    │   ├── data.py
+    │   ├── split.py
+    │   ├── fit.py
+    │   ├── evaluate.py
+    │   └── upload_model.py            # запускается руками, не через dvc repro
     ├── notebooks/
     │   └── 3_model_experiments.ipynb
     ├── data/                          # csv-файлы, версионируются DVC
     ├── models/                        # fitted_model.pkl, версионируется DVC
-    ├── cv_results/                    # cv_res.json с метриками, появляется после dvc repro
-    └── mlruns/                        # папка из шаблона курса, MLflow здесь не используется
+    ├── cv_results/                    # cv_res.json с метриками
+    └── mlruns/                        # папка из шаблона, MLflow не использую
 ```
 
 Папки `data/`, `models/` и `logs/` в репозитории пустые: данные и модель хранятся в S3, логи в git не нужны.
 
-## 5. Этап 1. Сбор данных
+## Этап 1. Сбор данных
 
-| Что | Где |
-|---|---|
-| Код DAG | `part1_airflow/dags/flats_dataset.py` |
-| DAG | `prepare_flats_dataset` |
-| Функции задач | `create_table`, `extract`, `transform`, `load` |
-| Уведомления в Telegram | `part1_airflow/plugins/steps/messages.py` |
-| Ноутбук с разведкой данных | `part1_airflow/notebooks/1_explore_source_tables.ipynb` |
-| Результат | таблица `flats_dataset` в личной БД |
+DAG `prepare_flats_dataset` лежит в `part1_airflow/dags/flats_dataset.py`, задачи
+`create_table`, `extract`, `transform`, `load`, на выходе таблица `flats_dataset` в личной БД.
+Разведка данных - в `part1_airflow/notebooks/1_explore_source_tables.ipynb`.
 
-Что делают задачи:
-
-* `create_table` - создаёт в личной БД таблицу `flats_dataset`, если её ещё нет. На `flat_id` стоит
-  ограничение уникальности, поэтому повторный запуск не наплодит дублей;
-* `extract` - читает из общей БД квартиры вместе с характеристиками домов одним запросом
-  с `left join` по `flats.building_id = buildings.id`;
-* `transform` - приводит колонки к нужным типам и ставит их в том же порядке, что и в таблице-приёмнике;
-* `load` - пишет данные в `flats_dataset` через `insert_rows` с обновлением строк по `flat_id`.
+`create_table` заводит `flats_dataset`, если её нет; на `flat_id` стоит уникальность, поэтому
+повторный запуск не плодит дубли. `extract` забирает квартиры вместе с характеристиками домов одним
+запросом с `left join` по `flats.building_id = buildings.id`. В `transform` главное - выставить
+колонки в том же порядке, что в таблице-приёмнике, иначе вставка их перепутает.
 
 Функции `send_telegram_success_message` и `send_telegram_failure_message` из
 `part1_airflow/plugins/steps/messages.py` подключены к DAG как `on_success_callback`
-и `on_failure_callback` и шлют сообщение в Telegram после каждого запуска.
+и `on_failure_callback` и шлют сообщение после каждого запуска.
 
-## 6. Этап 2. Очистка данных
+## Этап 2. Очистка данных
 
-| Что | Где |
-|---|---|
-| Код DAG | `part1_airflow/dags/clean_flats_dataset.py` |
-| DAG | `clean_flats_dataset` |
-| Функции задач | `create_table`, `extract`, `transform`, `load` |
-| Функции очистки | `part1_airflow/plugins/steps/clean_flats.py` |
-| Ноутбук с анализом | `part1_airflow/notebooks/2_data_cleaning.ipynb` |
-| Результат | таблица `clean_flats_dataset` в личной БД |
+DAG `clean_flats_dataset` лежит в `part1_airflow/dags/clean_flats_dataset.py`, задачи те же четыре,
+результат - таблица `clean_flats_dataset`. Разбор данных и черновик функций -
+в `part1_airflow/notebooks/2_data_cleaning.ipynb`: там таблица `flats_dataset` проверяется
+на пропуски, дубликаты и выбросы (describe, boxplot, границы по межквартильному размаху)
+и на аномалии вроде нулевой цены или площади.
 
-В ноутбуке `2_data_cleaning.ipynb` таблица `flats_dataset` проверяется на пропуски, дубликаты
-и выбросы (describe, boxplot, границы по межквартильному размаху) и на доменные аномалии вроде
-нулевой цены или площади. По итогам написаны три функции, которые лежат в
-`part1_airflow/plugins/steps/clean_flats.py`:
+По итогам написаны три функции, они лежат в `part1_airflow/plugins/steps/clean_flats.py`:
 
-* `fill_missing_values(data)` - заполняет пропуски: числовые колонки медианой, остальные модой;
-* `remove_duplicates(data)` - убирает строки, у которых совпадают все признаки, кроме идентификаторов;
+* `fill_missing_values(data)` - числовые колонки заполняет медианой, остальные модой;
+* `remove_duplicates(data)` - убирает строки, у которых совпали все признаки, кроме идентификаторов;
 * `remove_outliers(data, threshold=1.5)` - выбрасывает строки с неположительной ценой или площадью,
   а затем выбросы по межквартильному размаху.
 
-Задача `transform` применяет их именно в таком порядке: сначала `fill_missing_values`, потом
-`remove_duplicates`, потом `remove_outliers`. Заполнение пропусков делает одинаковыми строки,
-которые до этого отличались только пропуском, поэтому дубликаты ищем уже после него.
+Задача `transform` вызывает их именно в таком порядке. Заполнение пропусков делает одинаковыми строки,
+которые до этого отличались только пропуском, поэтому дубликаты ищутся уже после него.
 
-## 7. Этап 3. DVC-пайплайн
+## Этап 3. DVC-пайплайн
 
 | Что | Где |
 |---|---|
@@ -162,74 +131,47 @@ mle-project-sprint-1/
 | Загрузка модели в S3 | `part2_dvc/scripts/upload_model.py` |
 | Ноутбук с экспериментами | `part2_dvc/notebooks/3_model_experiments.ipynb` |
 
-Стадии идут по цепочке:
-
-1. `get_data` - выгружает `clean_flats_dataset` из личной БД в `data/initial_data.csv`;
-2. `split_data` - делит данные на `data/train.csv` и `data/test.csv`;
-3. `fit_model` - обучает пайплайн `ColumnTransformer` (OneHotEncoder для категорий, StandardScaler
-   для чисел) + `CatBoostRegressor` и сохраняет его в `models/fitted_model.pkl`;
-4. `evaluate_model` - считает метрики на кросс-валидации по train и на отложенной выборке test,
-   результат пишет в `cv_results/cv_res.json`.
+Внутри `fit_model` - `ColumnTransformer` (`OneHotEncoder` на категории, `StandardScaler` на числа)
+и `CatBoostRegressor`, а `evaluate_model` считает метрики на кросс-валидации по train
+и на отложенной выборке test.
 
 ### Метрики
 
-Основная метрика - **MAE** в рублях, дополнительно считаются **RMSE**, **MAPE** и **R2**.
-Почему основной выбрана именно MAE, разобрано в ноутбуке
-`part2_dvc/notebooks/3_model_experiments.ipynb`: там есть гистограмма цены, из-за которой
-этот выбор и сделан.
-
-В `cv_results/cv_res.json` лежат средние по фолдам кросс-валидации (`cv_mae`, `cv_rmse`, `cv_mape`,
-`cv_r2`) и метрики на тесте (`test_mae`, `test_rmse`, `test_mape`, `test_r2`). Посмотреть их можно
-командой `dvc metrics show`.
+Основная метрика - MAE в рублях, ещё считаю RMSE, MAPE и R2. Почему именно MAE - в ноутбуке
+`part2_dvc/notebooks/3_model_experiments.ipynb`, там гистограмма цены с длинным правым хвостом.
 
 ### Где лежит модель
 
-1. После `dvc push` модель и данные попадают в кэш DVC в бакете: `s3://<bucket>/dvc/files/md5/...`.
-   Какой объект соответствует модели, записано в `part2_dvc/dvc.lock`.
-2. Скрипт `part2_dvc/scripts/upload_model.py` кладёт тот же файл по понятному ключу
-   `s3://<bucket>/mle-project-sprint-1/models/fitted_model.pkl`, чтобы модель было легко найти в бакете.
+После `dvc push` модель и данные попадают в кэш DVC в бакете (`s3://<bucket>/dvc/files/md5/...`,
+какой объект соответствует модели - записано в `part2_dvc/dvc.lock`). Скрипт
+`part2_dvc/scripts/upload_model.py` кладёт её же по ключу
+`s3://<bucket>/mle-project-sprint-1/models/fitted_model.pkl`.
 
-## 8. Как запустить
+## Как запустить
 
-В папках `part1_airflow/` и `part2_dvc/` лежат файлы `.env_template`. В каждой из них нужно скопировать
-шаблон в `.env` и подставить свои значения (файлы `.env` в git не попадают).
+Обе части заводятся одинаково: `cp .env_template .env` и заполнить своими значениями.
 
-Этапы 1 и 2:
+Дальше в `part1_airflow` - `docker compose up --build -d`, Airflow на http://localhost:8080
+(`admin` / `admin`), сначала DAG `prepare_flats_dataset`, после него `clean_flats_dataset`.
+В `part2_dvc` - venv на Python 3.11, `pip install -r requirements.txt`, потом `dvc repro`,
+`dvc push` и `python scripts/upload_model.py`.
 
-```bash
-cd part1_airflow
-cp .env_template .env          # заполнить значениями
-docker compose up --build -d
-```
+Полные команды и настройка DVC-remote - в `part1_airflow/README.md` и `part2_dvc/README.md`.
 
-Веб-интерфейс Airflow: http://localhost:8080, логин и пароль `admin` / `admin`. Сначала запускается
-DAG `prepare_flats_dataset`, после него - `clean_flats_dataset`. Подробности в `part1_airflow/README.md`.
+## Итоговые метрики
 
-Этап 3:
-
-```bash
-cd part2_dvc
-python3.11 -m venv .venv_mle_dvc
-source .venv_mle_dvc/bin/activate
-pip install -r requirements.txt
-cp .env_template .env          # заполнить значениями
-dvc repro                      # get_data -> split_data -> fit_model -> evaluate_model
-dvc push                       # отправить данные и модель в S3
-python scripts/upload_model.py # копия модели по читаемому ключу
-```
-
-Настройка DVC-remote описана в `part2_dvc/README.md`.
-
-## 9. Итоговые метрики
-
-Значения берутся из `part2_dvc/cv_results/cv_res.json` после запуска `dvc repro`.
-Пока пайплайн на реальных данных не запускался, поэтому в таблице стоят прочерки.
+Значения из `part2_dvc/cv_results/cv_res.json`, получены запуском `dvc repro`.
 
 | Метрика | Кросс-валидация на train (5 фолдов) | Отложенная выборка test |
 |---|---|---|
-| MAE (основная), руб. | - | - |
-| RMSE, руб. | - | - |
-| MAPE | - | - |
-| R2 | - | - |
+| MAE (основная), руб. | 1 680 766 | 1 666 729 |
+| RMSE, руб. | 2 080 089 | 2 063 365 |
+| MAPE | 0.163 | 0.162 |
+| R2 | 0.643 | 0.648 |
 
 Модель - `CatBoostRegressor` с параметрами из секции `model` файла `part2_dvc/params.yaml`.
+
+Цифры на кросс-валидации и на тесте почти совпадают, значит модель не переобучилась. В среднем она
+ошибается примерно на 1,7 млн рублей, это около 16% от цены квартиры. Для первого захода сойдёт.
+Что пробовать дальше - скорее признаки: из координат можно вытащить расстояние до центра,
+сейчас модель про район ничего не знает.

@@ -1,4 +1,4 @@
-"""Уведомления в Telegram о результате исполнения DAG."""
+# колбэки для on_success_callback / on_failure_callback в DAG
 
 import os
 
@@ -6,7 +6,6 @@ from airflow.providers.telegram.hooks.telegram import TelegramHook
 
 
 def send_telegram_success_message(context):
-    """Сообщение в Telegram об успешном запуске DAG."""
     hook = TelegramHook(token=os.environ['TELEGRAM_TOKEN'], chat_id=os.environ['TELEGRAM_CHAT_ID'])
     dag = context['dag']
     run_id = context['run_id']
@@ -15,7 +14,6 @@ def send_telegram_success_message(context):
 
 
 def send_telegram_failure_message(context):
-    """Сообщение в Telegram об ошибке при запуске DAG."""
     hook = TelegramHook(token=os.environ['TELEGRAM_TOKEN'], chat_id=os.environ['TELEGRAM_CHAT_ID'])
     dag = context['dag']
     run_id = context['run_id']

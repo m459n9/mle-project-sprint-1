@@ -1,4 +1,4 @@
-"""Загрузка обученной модели в S3 по понятному пути (запускать после dvc repro)."""
+"""Кладём обученную модель в s3. Запускать руками после dvc repro."""
 import os
 
 import boto3
@@ -6,11 +6,10 @@ from dotenv import load_dotenv
 
 
 def upload_model():
-    # ключи доступа к бакету берём из .env
     load_dotenv()
     bucket = os.environ['S3_BUCKET_NAME']
 
-    # S3 в Яндекс Облаке, поэтому обязательно указываем свой endpoint
+    # без своего endpoint boto3 пойдёт в амазоновский s3
     s3 = boto3.client(
         's3',
         endpoint_url='https://storage.yandexcloud.net',
@@ -22,7 +21,6 @@ def upload_model():
     s3.upload_file('models/fitted_model.pkl', bucket, key)
     print(f'Модель загружена: s3://{bucket}/{key}')
 
-    # проверяем, что файл действительно появился в бакете
     objects = s3.list_objects_v2(Bucket=bucket, Prefix='mle-project-sprint-1/models/')
     print(f'Содержимое бакета {bucket} по этому пути:')
     for obj in objects.get('Contents', []):

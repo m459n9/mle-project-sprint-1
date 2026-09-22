@@ -1,10 +1,9 @@
-"""DAG clean_flats_dataset: чистит таблицу flats_dataset и складывает результат в clean_flats_dataset."""
-
 import pendulum
 import pandas as pd
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from psycopg2.extras import execute_values
 from sqlalchemy import MetaData, Table, Column, Integer, Float, Boolean, UniqueConstraint, inspect
 
 from steps.messages import send_telegram_success_message, send_telegram_failure_message
@@ -12,7 +11,6 @@ from steps.clean_flats import fill_missing_values, remove_duplicates, remove_out
 
 
 def create_table():
-    """Создаёт таблицу clean_flats_dataset в личной БД, если её там ещё нет."""
     hook = PostgresHook('destination_db')
     engine = hook.get_sqlalchemy_engine()
 
@@ -47,12 +45,10 @@ def create_table():
 
 
 def extract(**kwargs):
-    """Читает собранный датасет из таблицы flats_dataset личной БД."""
     hook = PostgresHook('destination_db')
     conn = hook.get_conn()
 
-    # служебный id не берём: в новой таблице он свой.
-    # сортировка нужна, чтобы при повторном запуске из одинаковых строк оставалась та же самая
+    # order by, чтобы при перезапуске из одинаковых строк оставалась та же
     sql = """
     select
         flat_id,
@@ -84,27 +80,24 @@ def extract(**kwargs):
 
 
 def transform(**kwargs):
-    """Заполняет пропуски, удаляет дубликаты и выбросы."""
     data = kwargs['ti'].xcom_pull(task_ids='extract', key='extracted_data')
     print(f'Пришло строк: {len(data)}')
 
-    # порядок важен: после заполнения пропусков строки, отличавшиеся только пропуском,
-    # становятся одинаковыми, и их надо поймать шагом с дубликатами
+    # сначала пробовал наоборот - дубликаты после fillna так не ловились
     data = fill_missing_values(data)
     data = remove_duplicates(data)
     data = remove_outliers(data)
     print(f'Осталось строк: {len(data)}')
 
-    # медиана могла сделать целые колонки вещественными, возвращаем им целый тип
+    # после fillna медианой целые колонки стали float
     for col in ['flat_id', 'building_id', 'floor', 'rooms', 'build_year',
                 'building_type_int', 'flats_count', 'floors_total']:
         data[col] = data[col].round().astype('Int64')
 
-    # пропусков уже нет, поэтому булевы колонки приводим к обычному bool
+    # пропусков уже нет, хватит обычного bool
     for col in ['is_apartment', 'studio', 'has_elevator']:
         data[col] = data[col].astype(bool)
 
-    # порядок колонок тот же, что в SELECT выше и в create_table
     data = data[['flat_id', 'building_id', 'floor', 'kitchen_area', 'living_area', 'rooms',
                  'is_apartment', 'studio', 'total_area', 'price', 'build_year', 'building_type_int',
                  'latitude', 'longitude', 'ceiling_height', 'flats_count', 'floors_total', 'has_elevator']]
@@ -112,20 +105,20 @@ def transform(**kwargs):
 
 
 def load(**kwargs):
-    """Записывает очищенный датасет в clean_flats_dataset личной БД."""
     data = kwargs['ti'].xcom_pull(task_ids='transform', key='transformed_data')
     hook = PostgresHook('destination_db')
 
     rows = data.astype(object).where(pd.notnull(data), None).values.tolist()
 
-    # как и в первом DAG, повторный запуск обновляет строки по flat_id
-    hook.insert_rows(
-        table='clean_flats_dataset',
-        rows=rows,
-        target_fields=data.columns.tolist(),
-        replace=True,
-        replace_index=['flat_id'],
-    )
+    columns = ', '.join(data.columns)
+    updates = ', '.join(f'{col} = excluded.{col}' for col in data.columns if col != 'flat_id')
+    sql = f'insert into clean_flats_dataset ({columns}) values %s on conflict (flat_id) do update set {updates}'
+
+    conn = hook.get_conn()
+    with conn.cursor() as cursor:
+        execute_values(cursor, sql, rows, page_size=5000)
+    conn.commit()
+    conn.close()
     print(f'Загружено строк: {len(rows)}')
 
 

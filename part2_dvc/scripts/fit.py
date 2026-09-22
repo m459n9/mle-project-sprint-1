@@ -1,4 +1,4 @@
-"""Шаг fit_model: обучаем пайплайн (кодирование признаков + CatBoost) на train.csv и сохраняем его."""
+"""Обучение: OneHot + StandardScaler + CatBoost, всё одним пайплайном."""
 import os
 
 import joblib
@@ -14,25 +14,22 @@ def fit_model():
     params = yaml.safe_load(open('params.yaml', 'r'))
     train = pd.read_csv('data/train.csv')
 
-    # признаки - все колонки, кроме id-шников и цены; цена это ответ, который учим предсказывать
     X = train.drop(columns=params['drop_cols'] + [params['target_col']])
     y = train[params['target_col']]
-    # building_type_int - это код типа дома, а не число: дом типа 4 не в два раза "больше" дома типа 2.
-    # Перевожу все категориальные колонки в строки, тогда OneHotEncoder точно закодирует их как категории
+    # building_type_int - код типа дома, а не величина; строками он одинаково читается и из БД, и из csv
     for col in params['cat_cols']:
         X[col] = X[col].astype(str)
 
     cat_cols = params['cat_cols']
     num_cols = [col for col in X.columns if col not in cat_cols]
 
-    # категории кодируем one-hot, числа приводим к одному масштабу
     preprocessor = ColumnTransformer([
         ('cat', OneHotEncoder(drop=params['one_hot_drop'], handle_unknown='ignore', sparse_output=False), cat_cols),
         ('num', StandardScaler(), num_cols),
     ])
     model = CatBoostRegressor(**params['model'], random_seed=params['random_state'])
 
-    # складываем предобработку и модель в один объект, чтобы потом не повторять эти шаги вручную
+    # препроцессор внутри пайплайна, иначе на cv будет утечка
     pipeline = Pipeline([('preprocessor', preprocessor), ('model', model)])
     pipeline.fit(X, y)
 

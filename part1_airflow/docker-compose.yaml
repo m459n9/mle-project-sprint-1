@@ -1,12 +1,5 @@
-# Docker Compose для локального Airflow 2.7.3 (LocalExecutor).
-# Основа - официальный docker-compose Airflow, урезанный до нужного минимума:
-#   postgres          - метаданные Airflow
-#   airflow-init      - миграции БД метаданных и создание пользователя веб-интерфейса
-#   airflow-webserver - веб-интерфейс (http://localhost:8080)
-#   airflow-scheduler - планировщик, он же исполняет задачи (LocalExecutor)
-#
-# Доступы к базам и Telegram берутся из файла .env рядом с этим файлом (см. .env_template).
-# .env в репозиторий не попадает, он добавлен в .gitignore.
+# взял официальный compose Airflow 2.7.3 и выкинул лишнее, executor - Local
+# доступы в .env рядом (шаблон в .env_template)
 ---
 x-airflow-common:
   &airflow-common
@@ -23,11 +16,8 @@ x-airflow-common:
     AIRFLOW__CORE__ENABLE_XCOM_PICKLING: 'True'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
-    # соединение source_db (общая БД, откуда читаем buildings и flats)
-    AIRFLOW_CONN_SOURCE_DB: postgresql://${DB_SOURCE_USER}:${DB_SOURCE_PASSWORD}@${DB_SOURCE_HOST}:${DB_SOURCE_PORT}/${DB_SOURCE_NAME}
-    # соединение destination_db (личная БД, куда пишем flats_dataset и clean_flats_dataset)
+    # из этой переменной Airflow делает conn_id destination_db - его и берёт PostgresHook
     AIRFLOW_CONN_DESTINATION_DB: postgresql://${DB_DESTINATION_USER}:${DB_DESTINATION_PASSWORD}@${DB_DESTINATION_HOST}:${DB_DESTINATION_PORT}/${DB_DESTINATION_NAME}
-    # Telegram-бот для уведомлений (используется в plugins/steps/messages.py)
     TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
     TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
   volumes:

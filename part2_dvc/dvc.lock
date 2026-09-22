@@ -1,0 +1,120 @@
+schema: '2.0'
+stages:
+  get_data:
+    cmd: python scripts/data.py
+    deps:
+    - path: scripts/data.py
+      hash: md5
+      md5: b9691b712e30f32effc0bda635c53b86
+      size: 1205
+    outs:
+    - path: data/initial_data.csv
+      hash: md5
+      md5: 49aca7268529ecd727ff29a122e533c6
+      size: 12147243
+  split_data:
+    cmd: python scripts/split.py
+    deps:
+    - path: data/initial_data.csv
+      hash: md5
+      md5: 49aca7268529ecd727ff29a122e533c6
+      size: 12147243
+    - path: scripts/split.py
+      hash: md5
+      md5: b36c90ad4b65c57f37fd40125b1ff878
+      size: 902
+    params:
+      params.yaml:
+        index_col: flat_id
+        random_state: 42
+        test_size: 0.2
+    outs:
+    - path: data/test.csv
+      hash: md5
+      md5: c95e4a7afc6412fd09ef7b3306b9d27e
+      size: 2432737
+    - path: data/train.csv
+      hash: md5
+      md5: bd1e6017fc169ebf647bd73776feedff
+      size: 9709062
+  fit_model:
+    cmd: python scripts/fit.py
+    deps:
+    - path: data/train.csv
+      hash: md5
+      md5: bd1e6017fc169ebf647bd73776feedff
+      size: 9709062
+    - path: scripts/fit.py
+      hash: md5
+      md5: 13409d4c89fa431f3f252283de7b62fd
+      size: 1710
+    params:
+      params.yaml:
+        cat_cols:
+        - building_type_int
+        - is_apartment
+        - studio
+        - has_elevator
+        drop_cols:
+        - id
+        - flat_id
+        - building_id
+        model:
+          iterations: 500
+          learning_rate: 0.05
+          depth: 6
+          loss_function: RMSE
+          verbose: 0
+          thread_count: -1
+        one_hot_drop: if_binary
+        random_state: 42
+        target_col: price
+    outs:
+    - path: models/fitted_model.pkl
+      hash: md5
+      md5: 5e7bda568221402f5e23e7751f3ca90d
+      size: 555252
+  evaluate_model:
+    cmd: python scripts/evaluate.py
+    deps:
+    - path: data/test.csv
+      hash: md5
+      md5: c95e4a7afc6412fd09ef7b3306b9d27e
+      size: 2432737
+    - path: data/train.csv
+      hash: md5
+      md5: bd1e6017fc169ebf647bd73776feedff
+      size: 9709062
+    - path: models/fitted_model.pkl
+      hash: md5
+      md5: 5e7bda568221402f5e23e7751f3ca90d
+      size: 555252
+    - path: scripts/evaluate.py
+      hash: md5
+      md5: 1d685943ae42acea50b500f54c3fbf7b
+      size: 2547
+    params:
+      params.yaml:
+        cat_cols:
+        - building_type_int
+        - is_apartment
+        - studio
+        - has_elevator
+        drop_cols:
+        - id
+        - flat_id
+        - building_id
+        metrics:
+        - neg_mean_absolute_error
+        - neg_root_mean_squared_error
+        - neg_mean_absolute_percentage_error
+        - r2
+        n_jobs: 1
+        n_splits: 5
+        random_state: 42
+        target_col: price
+    outs:
+    - path: cv_results/cv_res.json
+      hash: md5
+      md5: 747bce6d0b4aa6d52651545b23bce9fc
+      size: 188

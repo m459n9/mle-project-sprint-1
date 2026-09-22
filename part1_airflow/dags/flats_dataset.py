@@ -1,17 +1,17 @@
-"""DAG prepare_flats_dataset: собирает квартиры и дома из общей БД в одну таблицу flats_dataset в личной БД."""
+# первый DAG: flats + buildings -> flats_dataset
 
 import pendulum
 import pandas as pd
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from psycopg2.extras import execute_values
 from sqlalchemy import MetaData, Table, Column, Integer, Float, Boolean, UniqueConstraint, inspect
 
 from steps.messages import send_telegram_success_message, send_telegram_failure_message
 
 
 def create_table():
-    """Создаёт таблицу flats_dataset в личной БД, если её там ещё нет."""
     hook = PostgresHook('destination_db')
     engine = hook.get_sqlalchemy_engine()
 
@@ -38,22 +38,19 @@ def create_table():
         Column('flats_count', Integer),
         Column('floors_total', Integer),
         Column('has_elevator', Boolean),
-        # по flat_id строки не должны повторяться, на этом же ограничении работает обновление в load
+        # на этот констрейнт завязан on conflict в load
         UniqueConstraint('flat_id', name='unique_flat_id_constraint'),
     )
 
-    # если таблица уже есть, второй раз её не создаём и данные не теряем
     if not inspect(engine).has_table('flats_dataset'):
         metadata.create_all(engine)
 
 
 def extract(**kwargs):
-    """Читает из общей БД квартиры вместе с характеристиками их домов."""
-    hook = PostgresHook('source_db')
+    hook = PostgresHook('destination_db')
     conn = hook.get_conn()
 
-    # id квартиры переименовываем в flat_id, чтобы он не путался с id строки в новой таблице.
-    # left join - чтобы не потерять квартиры, у которых в buildings нет дома
+    # left join, иначе потеряются квартиры, у которых дома в buildings нет
     sql = """
     select
         f.id as flat_id,
@@ -85,20 +82,17 @@ def extract(**kwargs):
 
 
 def transform(**kwargs):
-    """Приводит типы колонок к типам таблицы и выстраивает колонки в нужном порядке."""
     data = kwargs['ti'].xcom_pull(task_ids='extract', key='extracted_data')
 
-    # целые колонки с пропусками приходят из БД как вещественные;
-    # Int64 - это целый тип pandas, который умеет хранить пропуски
+    # из-за пропусков pandas отдаёт эти колонки как float, возвращаем целые
     for col in ['flat_id', 'building_id', 'floor', 'rooms', 'build_year',
                 'building_type_int', 'flats_count', 'floors_total']:
         data[col] = data[col].astype('Int64')
 
-    # boolean - такой же тип с поддержкой пропусков, но для True/False
     for col in ['is_apartment', 'studio', 'has_elevator']:
         data[col] = data[col].astype('boolean')
 
-    # порядок колонок тот же, что в SELECT выше и в create_table: так проще сверять глазами
+    # порядок колонок как в create_table
     data = data[['flat_id', 'building_id', 'floor', 'kitchen_area', 'living_area', 'rooms',
                  'is_apartment', 'studio', 'total_area', 'price', 'build_year', 'building_type_int',
                  'latitude', 'longitude', 'ceiling_height', 'flats_count', 'floors_total', 'has_elevator']]
@@ -106,22 +100,23 @@ def transform(**kwargs):
 
 
 def load(**kwargs):
-    """Записывает датасет в flats_dataset личной БД."""
     data = kwargs['ti'].xcom_pull(task_ids='transform', key='transformed_data')
     hook = PostgresHook('destination_db')
 
-    # пропуски превращаем в None, иначе в БД вместо NULL уедет строка NaN
+    # без astype(object) пропуски уедут в базу как NaN, а не NULL
     rows = data.astype(object).where(pd.notnull(data), None).values.tolist()
 
-    # replace=True: если строка с таким flat_id уже есть, она обновляется,
-    # поэтому повторный запуск DAG не плодит дубликаты
-    hook.insert_rows(
-        table='flats_dataset',
-        rows=rows,
-        target_fields=data.columns.tolist(),
-        replace=True,
-        replace_index=['flat_id'],
-    )
+    # on conflict - чтобы повторный запуск обновлял строку, а не плодил дубли
+    columns = ', '.join(data.columns)
+    updates = ', '.join(f'{col} = excluded.{col}' for col in data.columns if col != 'flat_id')
+    sql = f'insert into flats_dataset ({columns}) values %s on conflict (flat_id) do update set {updates}'
+
+    conn = hook.get_conn()
+    with conn.cursor() as cursor:
+        # пачками: построчно 140 тысяч строк грузились бесконечно
+        execute_values(cursor, sql, rows, page_size=5000)
+    conn.commit()
+    conn.close()
     print(f'Загружено строк: {len(rows)}')
 
 

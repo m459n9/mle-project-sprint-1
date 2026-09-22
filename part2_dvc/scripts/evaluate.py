@@ -1,4 +1,3 @@
-"""Шаг evaluate_model: проверяем модель на кросс-валидации и на отложенной выборке, метрики пишем в json."""
 import json
 import os
 
@@ -21,7 +20,7 @@ def evaluate_model():
     train = pd.read_csv('data/train.csv')
     test = pd.read_csv('data/test.csv')
 
-    # признаки готовим так же, как в fit.py: убираем id-шники и цену, категории делаем строками
+    # признаки собираю так же, как в fit.py
     X_train = train.drop(columns=params['drop_cols'] + [params['target_col']])
     y_train = train[params['target_col']]
     X_test = test.drop(columns=params['drop_cols'] + [params['target_col']])
@@ -30,8 +29,7 @@ def evaluate_model():
         X_train[col] = X_train[col].astype(str)
         X_test[col] = X_test[col].astype(str)
 
-    # кросс-валидация: train делится на n_splits частей, модель обучается заново на каждом фолде.
-    # Так видно, насколько метрика стабильна и не повезло ли нам с одним разбиением
+    # cv на train, чтобы не смотреть только на один сплит
     cv = KFold(n_splits=params['n_splits'], shuffle=True, random_state=params['random_state'])
     cv_res = cross_validate(
         pipeline,
@@ -42,11 +40,10 @@ def evaluate_model():
         n_jobs=params['n_jobs'],
     )
 
-    # на тесте модель уже обучена на всём train, просто предсказываем и сравниваем с реальной ценой
     y_pred = pipeline.predict(X_test)
 
-    # scorer-ы с приставкой neg_ возвращают метрику со знаком минус (sklearn всегда максимизирует),
-    # поэтому знак разворачиваем обратно. float() нужен, чтобы json смог записать числа numpy
+    # neg_ метрики приходят с минусом (sklearn максимизирует), возвращаю знак
+    # float() - иначе json давится numpy-числами
     result = {
         'cv_mae': round(float(-cv_res['test_neg_mean_absolute_error'].mean()), 2),
         'cv_rmse': round(float(-cv_res['test_neg_root_mean_squared_error'].mean()), 2),
