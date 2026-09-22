@@ -5,7 +5,7 @@ stages:
     deps:
     - path: scripts/data.py
       hash: md5
-      md5: b9691b712e30f32effc0bda635c53b86
+      md5: 9343911e183efa3bb48d8d752393107f
       size: 1205
     outs:
     - path: data/initial_data.csv

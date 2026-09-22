@@ -17,7 +17,7 @@ def get_data():
     password = quote_plus(os.environ['DB_DESTINATION_PASSWORD'])
 
     engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{db_name}')
-    # без order by ловил перезапуск всего пайплайна на тех же данных - порядок строк плавал
+    # order by, иначе postgres отдаёт строки в разном порядке и dvc считает данные изменившимися
     data = pd.read_sql('select * from clean_flats_dataset order by id', engine)
     engine.dispose()
 

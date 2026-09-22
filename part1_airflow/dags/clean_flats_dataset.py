@@ -83,7 +83,7 @@ def transform(**kwargs):
     data = kwargs['ti'].xcom_pull(task_ids='extract', key='extracted_data')
     print(f'Пришло строк: {len(data)}')
 
-    # сначала пробовал наоборот - дубликаты после fillna так не ловились
+    # fillna первым: если пропуски заполнить после поиска дублей, часть дублей проскочит
     data = fill_missing_values(data)
     data = remove_duplicates(data)
     data = remove_outliers(data)

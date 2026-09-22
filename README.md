@@ -72,11 +72,11 @@ mle-project-sprint-1/
     │   ├── split.py
     │   ├── fit.py
     │   ├── evaluate.py
-    │   └── upload_model.py            # запускается руками, не через dvc repro
+    │   └── upload_model.py
     ├── notebooks/
     │   └── 3_model_experiments.ipynb
-    ├── data/                          # csv-файлы, версионируются DVC
-    ├── models/                        # fitted_model.pkl, версионируется DVC
+    ├── data/
+    ├── models/
     ├── cv_results/                    # cv_res.json с метриками
     └── mlruns/                        # папка из шаблона, MLflow не использую
 ```

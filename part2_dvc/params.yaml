@@ -32,5 +32,5 @@ model:
   learning_rate: 0.05
   depth: 6
   loss_function: RMSE
-  verbose: 0  # иначе catboost засыпает лог обучения
+  verbose: 0  # иначе catboost печатает каждую итерацию
   thread_count: -1
